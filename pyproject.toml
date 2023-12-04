@@ -1,0 +1,43 @@
+[project]
+dynamic = ["version"]
+
+name = "simple-soc"
+description = "A simple SoC design using Amaranth SoC and Minerva"
+authors = [{name = "Jean-François Nguyen", email = "jf@jfng.fr"}]
+license = {file = "LICENSE.txt"}
+
+requires-python = "~=3.8"
+dependencies = [
+    "amaranth[builtin-yosys] @ git+https://github.com/amaranth-lang/amaranth",
+    "amaranth_soc @ git+https://github.com/jfng/amaranth-soc.git@csr-reg-rfc",
+    "amaranth_stdio @ git+https://github.com/amaranth-lang/amaranth-stdio",
+    "minerva @ git+https://github.com/minerva-cpu/minerva",
+    "yowasp-yosys",
+    "ziglang",
+]
+
+[project.urls]
+"Source Code" = "https://github.com/jfng/simple-soc"
+"Bug Tracker" = "https://github.com/jfng/simple-soc/issues"
+
+[build-system]
+requires = ["wheel", "setuptools>=67.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+local_scheme = "node-and-timestamp"
+
+[tool.setuptools.package-data]
+_cxxrtl = [
+    "include/logfmt.h",
+    "Makefile",
+    "serial_blackbox.v",
+    "serial_driver.cc",
+    "simple_soc.ys",
+    "simulate.cc",
+]
+_hello = [
+    "hello.S",
+    "link.ld",
+    "Makefile",
+]
