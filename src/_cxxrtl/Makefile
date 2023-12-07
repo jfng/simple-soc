@@ -17,7 +17,7 @@ SRC = \
 OBJS = $(SRC:.cc=.o)
 DEPS = $(OBJS:.o=.d)
 
-.PHONY: all ./_hello/hello.bin clean
+.PHONY: all clean
 
 all: simulate
 
