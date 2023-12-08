@@ -1,4 +1,3 @@
 read_verilog serial_blackbox.v
 read_ilang simple_soc.il
-delete w:$verilog_initial_trigger
 write_cxxrtl -header simple_soc.cc
