@@ -29,7 +29,7 @@ all: simulate
 simple_soc.il: ../_hello/hello.bin
 	pdm run python -m simple_soc.cli --rom-init=../_hello/hello.bin generate simple_soc.il
 
-simple_soc.cc simple_soc.h: simple_soc.ys simple_soc.il serial_blackbox.v
+simple_soc.cc simple_soc.h &: simple_soc.ys simple_soc.il serial_blackbox.v
 	pdm run yowasp-yosys -s simple_soc.ys -q
 
 simulate.o: CPPFLAGS += -DCXXRTL_TOP='cxxrtl_design::p_top'
