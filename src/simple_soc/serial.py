@@ -5,7 +5,7 @@ from amaranth.lib import data, wiring
 from amaranth.lib.wiring import In, Out, flipped, connect
 
 from amaranth_soc import csr
-from amaranth_soc.csr import field
+from amaranth_soc.csr import Field, action
 
 from amaranth_stdio.serial import *
 
@@ -16,26 +16,16 @@ __all__ = ["AsyncSerialRX_Blackbox", "AsyncSerialTX_Blackbox", "AsyncSerial_Blac
 
 class AsyncSerialRX_Blackbox(wiring.Component):
     def __init__(self, *, divisor, divisor_bits=None, data_bits=8, parity="none", parent=None):
-        AsyncSerialRX.Signature.check_parameters(divisor=divisor, divisor_bits=divisor_bits,
-                                                 data_bits=data_bits, parity=parity)
         if parent is not None and not isinstance(parent, AsyncSerial_Blackbox):
             raise TypeError(f"Parent must be an instance of AsyncSerial_Blackbox, not {parent!r}")
-        self._parent       = parent
-        self._divisor      = divisor
-        self._divisor_bits = divisor_bits
-        self._data_bits    = data_bits
-        self._parity       = parity
-        super().__init__()
-
-    @property
-    def signature(self):
-        return AsyncSerialRX.Signature(divisor=self._divisor, divisor_bits=self._divisor_bits,
-                                       data_bits=self._data_bits, parity=self._parity)
+        self._parent = parent
+        super().__init__(AsyncSerialRX.Signature(divisor=divisor, divisor_bits=divisor_bits,
+                                                 data_bits=data_bits, parity=parity))
 
     def elaborate(self, platform):
         return Instance("serial_rx",
             p_ID           = hex(id(self._parent) if self._parent else id(self)),
-            p_DATA_BITS    = self._data_bits,
+            p_DATA_BITS    = self.signature.data_bits,
             i_clk          = ClockSignal("sync"),
             o_data         = self.data,
             o_err_overflow = self.err.overflow,
@@ -48,26 +38,16 @@ class AsyncSerialRX_Blackbox(wiring.Component):
 
 class AsyncSerialTX_Blackbox(wiring.Component):
     def __init__(self, *, divisor, divisor_bits=None, data_bits=8, parity="none", parent=None):
-        AsyncSerialTX.Signature.check_parameters(divisor=divisor, divisor_bits=divisor_bits,
-                                                 data_bits=data_bits, parity=parity)
         if parent is not None and not isinstance(parent, AsyncSerial_Blackbox):
             raise TypeError(f"Parent must be an instance of AsyncSerial_Blackbox, not {parent!r}")
-        self._parent       = parent
-        self._divisor      = divisor
-        self._divisor_bits = divisor_bits
-        self._data_bits    = data_bits
-        self._parity       = parity
-        super().__init__()
-
-    @property
-    def signature(self):
-        return AsyncSerialTX.Signature(divisor=self._divisor, divisor_bits=self._divisor_bits,
-                                       data_bits=self._data_bits, parity=self._parity)
+        self._parent = parent
+        super().__init__(AsyncSerialTX.Signature(divisor=divisor, divisor_bits=divisor_bits,
+                                                 data_bits=data_bits, parity=parity))
 
     def elaborate(self, platform):
         return Instance("serial_tx",
             p_ID        = hex(id(self._parent) if self._parent else id(self)),
-            p_DATA_BITS = self._data_bits,
+            p_DATA_BITS = self.signature.data_bits,
             i_clk       = ClockSignal("sync"),
             i_data      = self.data,
             o_rdy       = self.rdy,
@@ -77,26 +57,23 @@ class AsyncSerialTX_Blackbox(wiring.Component):
 
 class AsyncSerial_Blackbox(wiring.Component):
     def __init__(self, *, divisor, divisor_bits=None, data_bits=8, parity="none", parent=None):
-        AsyncSerial.Signature.check_parameters(divisor=divisor, divisor_bits=divisor_bits,
-                                               data_bits=data_bits, parity=parity)
-        self._divisor      = divisor
-        self._divisor_bits = divisor_bits
-        self._data_bits    = data_bits
-        self._parity       = parity
-        super().__init__()
-
-    @property
-    def signature(self):
-        return AsyncSerial.Signature(divisor=self._divisor, divisor_bits=self._divisor_bits,
-                                     data_bits=self._data_bits, parity=self._parity)
+        super().__init__(AsyncSerial.Signature(divisor=divisor, divisor_bits=divisor_bits,
+                                               data_bits=data_bits, parity=parity))
 
     def elaborate(self, platform):
         m = Module()
 
-        rx = AsyncSerialRX_Blackbox(divisor=self._divisor, divisor_bits=self._divisor_bits,
-                                    data_bits=self._data_bits, parity=self._parity, parent=self)
-        tx = AsyncSerialTX_Blackbox(divisor=self._divisor, divisor_bits=self._divisor_bits,
-                                    data_bits=self._data_bits, parity=self._parity, parent=self)
+        rx = AsyncSerialRX_Blackbox(divisor=self.signature.divisor,
+                                    divisor_bits=self.signature.divisor_bits,
+                                    data_bits=self.signature.data_bits,
+                                    parity=self.signature.parity,
+                                    parent=self)
+        tx = AsyncSerialTX_Blackbox(divisor=self.signature.divisor,
+                                    divisor_bits=self.signature.divisor_bits,
+                                    data_bits=self.signature.data_bits,
+                                    parity=self.signature.parity,
+                                    parent=self)
+
         m.submodules.rx = rx
         m.submodules.tx = tx
 
@@ -112,7 +89,7 @@ class AsyncSerial_Blackbox(wiring.Component):
 
 
 class AsyncSerialPeripheral(wiring.Component):
-    class Ctrl(csr.Register):
+    class Ctrl(csr.Register, access="rw"):
         def __init__(self, divisor, divisor_bits=None):
             if not isinstance(divisor, int) or divisor <= 0:
                 raise ValueError(f"Divisor reset must be a positive integer, not {divisor!r}")
@@ -120,38 +97,38 @@ class AsyncSerialPeripheral(wiring.Component):
                 divisor_bits = bits_for(divisor)
             if not isinstance(divisor_bits, int) or divisor_bits <= 0:
                 raise ValueError(f"Divisor width must be a positive integer, not {divisor_bits!r}")
-            super().__init__(access="rw", fields=csr.FieldMap({
-                "divisor": field.RW(unsigned(divisor_bits), reset=divisor),
-            }))
+            super().__init__({
+                "divisor": Field(action.RW, unsigned(divisor_bits), reset=divisor),
+            })
 
-    class RxInfo(csr.Register):
+    class RxInfo(csr.Register, access="r"):
         def __init__(self):
-            super().__init__(access="r", fields=csr.FieldMap({
-                "rdy": field.R(unsigned(1)),
-                "err": csr.FieldMap({
-                    "overflow": field.R(unsigned(1)),
-                    "frame":    field.R(unsigned(1)),
-                    "parity":   field.R(unsigned(1)),
-                }),
-            }))
+            super().__init__({
+                "rdy": csr.Field(csr.action.R, unsigned(1)),
+                "err": {
+                    "overflow": Field(csr.action.R, unsigned(1)),
+                    "frame":    Field(csr.action.R, unsigned(1)),
+                    "parity":   Field(csr.action.R, unsigned(1)),
+                },
+            })
 
-    class RxData(csr.Register):
+    class RxData(csr.Register, access="r"):
         def __init__(self, data_bits):
-            super().__init__(access="r", fields=csr.FieldMap({
-                "data": field.R(unsigned(data_bits)),
-            }))
+            super().__init__({
+                "data": Field(action.R, unsigned(data_bits)),
+            })
 
-    class TxInfo(csr.Register):
+    class TxInfo(csr.Register, access="r"):
         def __init__(self):
-            super().__init__(access="r", fields=csr.FieldMap({
-                "rdy": field.R(unsigned(1)),
-            }))
+            super().__init__({
+                "rdy": Field(action.R, unsigned(1)),
+            })
 
-    class TxData(csr.Register):
+    class TxData(csr.Register, access="w"):
         def __init__(self, data_bits):
-            super().__init__(access="w", fields=csr.FieldMap({
-                "data": field.W(unsigned(data_bits)),
-            }))
+            super().__init__({
+                "data": Field(action.W, unsigned(data_bits)),
+            })
 
     def __init__(self, *, name, divisor, divisor_bits=None, data_bits=8, parity="none",
                  rx_depth=16, tx_depth=16):
@@ -175,11 +152,8 @@ class AsyncSerialPeripheral(wiring.Component):
         register_map.add_cluster(tx_cluster, name="tx")
 
         self._bridge = csr.Bridge(register_map, addr_width=8, data_width=8, name=name)
-        super().__init__()
-
-    @property
-    def signature(self):
-        return self._bridge.signature
+        super().__init__(self._bridge.signature)
+        self.bus.memory_map = self._bridge.bus.memory_map
 
     def elaborate(self, platform):
         m = Module()

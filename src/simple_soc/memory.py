@@ -30,7 +30,17 @@ class WishboneMemory(wiring.Component):
         self._writable    = bool(writable)
         self._storage     = Memory(depth=(size * granularity) // data_width,
                                    width=data_width, init=init)
-        super().__init__()
+
+        super().__init__({
+            "bus": Out(wishbone.Signature(addr_width=bits_for(self._storage.depth),
+                                          data_width=data_width,
+                                          granularity=granularity,
+                                          features=("cti", "bte"))),
+        })
+
+        memory_map = MemoryMap(addr_width=bits_for(size), data_width=granularity)
+        memory_map.add_resource(self, name=name, size=size)
+        self.bus.memory_map = memory_map
 
     @property
     def name(self):
@@ -55,18 +65,6 @@ class WishboneMemory(wiring.Component):
     @property
     def init(self):
         return self._storage.init
-
-    @property
-    def signature(self):
-        bus_sig = wishbone.Signature(addr_width=bits_for(self._storage.depth),
-                                     data_width=self.data_width,
-                                     granularity=self.granularity,
-                                     features=("cti", "bte"))
-        bus_map = MemoryMap(addr_width=bits_for(self.size), data_width=self.granularity,
-                            name=self.name)
-        bus_map.add_resource(self._storage, name="storage", size=self.size)
-        bus_sig.memory_map = bus_map
-        return wiring.Signature({"bus": Out(bus_sig)})
 
     def elaborate(self, platform):
         m = Module()

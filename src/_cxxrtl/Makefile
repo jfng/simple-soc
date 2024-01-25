@@ -4,7 +4,8 @@ CC  = $(CXX)
 yosys_files != pdm run python -c \
 	"from importlib import resources; print(resources.files('yowasp_yosys'))"
 
-CPPFLAGS = -Iinclude -I$(yosys_files)/share/include -include simple_soc.h -MMD
+CPPFLAGS = -Iinclude -I$(yosys_files)/share/include/backends/cxxrtl/runtime \
+	   -include simple_soc.h -MMD
 CXXFLAGS = -std=c++14 -Wall -O3 -mtune=native -flto=thin
 LDFLAGS  = -flto=thin
 LDLIBS   =

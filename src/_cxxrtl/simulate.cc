@@ -1,4 +1,4 @@
-#include <backends/cxxrtl/cxxrtl_vcd.h>
+#include <cxxrtl/cxxrtl_vcd.h>
 #include <exception>
 #include <fstream>
 #include <getopt.h>
