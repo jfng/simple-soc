@@ -6,7 +6,8 @@ yosys_files != pdm run python -c \
 
 CPPFLAGS = -Iinclude -I$(yosys_files)/share/include/backends/cxxrtl/runtime \
 	   -include simple_soc.h -MMD
-CXXFLAGS = -std=c++14 -Wall -O3 -mtune=native -flto=thin
+CXXFLAGS = -std=c++14 -Wall -Wno-array-bounds -Wno-shift-count-overflow \
+           -O3 -mtune=native -flto=thin
 LDFLAGS  = -flto=thin
 LDLIBS   =
 

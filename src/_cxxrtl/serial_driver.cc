@@ -147,7 +147,7 @@ struct serial_pty_rx : public bb_p_serial__rx</*DATA_BITS=*/8> {
 
     void reset() override {}
 
-    bool eval() override {
+    bool eval(performer *performer) override {
         if (posedge_p_clk()) {
             if (p_ack.get<bool>() && p_rdy.curr.get<bool>()) {
                 assert(!buffer.empty());
@@ -162,7 +162,7 @@ struct serial_pty_rx : public bb_p_serial__rx</*DATA_BITS=*/8> {
                 p_data.next.set<unsigned char>(buffer.front());
             }
         }
-        return bb_p_serial__rx</*DATA_BITS=*/8>::eval();
+        return bb_p_serial__rx</*DATA_BITS=*/8>::eval(performer);
     }
 };
 
@@ -194,14 +194,14 @@ struct serial_pty_tx : public bb_p_serial__tx</*DATA_BITS=*/8> {
 
     void reset() override {}
 
-    bool eval() override {
+    bool eval(performer *performer) override {
         if (posedge_p_clk()) {
             if (p_ack.get<bool>() && p_rdy.curr.get<bool>()) {
                 desc->pty.write_char(p_data.get<unsigned char>());
             }
             p_rdy.next.set<bool>(desc->pty.writable());
         }
-        return bb_p_serial__tx</*DATA_BITS=*/8>::eval();
+        return bb_p_serial__tx</*DATA_BITS=*/8>::eval(performer);
     }
 };
 
