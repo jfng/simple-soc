@@ -20,5 +20,5 @@ SECTIONS
 	} > rom
 }
 
-PROVIDE(_serial_tx_info = 0x80000003);
-PROVIDE(_serial_tx_data = 0x80000004);
+PROVIDE(_serial_txs = 0x8000000c);
+PROVIDE(_serial_txd = 0x80000010);

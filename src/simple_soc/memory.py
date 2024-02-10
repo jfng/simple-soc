@@ -39,7 +39,7 @@ class WishboneMemory(wiring.Component):
         })
 
         memory_map = MemoryMap(addr_width=bits_for(size), data_width=granularity)
-        memory_map.add_resource(self, name=name, size=size)
+        memory_map.add_resource(self, name=(name,), size=size)
         self.bus.memory_map = memory_map
 
     @property

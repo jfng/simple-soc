@@ -1,12 +1,9 @@
 from amaranth import *
-from amaranth.utils import bits_for
 from amaranth.lib.fifo import SyncFIFOBuffered
-from amaranth.lib import data, wiring
+from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out, flipped, connect
 
 from amaranth_soc import csr
-from amaranth_soc.csr import Field, action
-
 from amaranth_stdio.serial import *
 
 
@@ -89,71 +86,45 @@ class AsyncSerial_Blackbox(wiring.Component):
 
 
 class AsyncSerialPeripheral(wiring.Component):
-    class Ctrl(csr.Register, access="rw"):
-        def __init__(self, divisor, divisor_bits=None):
-            if not isinstance(divisor, int) or divisor <= 0:
-                raise ValueError(f"Divisor reset must be a positive integer, not {divisor!r}")
-            if divisor_bits is None:
-                divisor_bits = bits_for(divisor)
-            if not isinstance(divisor_bits, int) or divisor_bits <= 0:
-                raise ValueError(f"Divisor width must be a positive integer, not {divisor_bits!r}")
+    class CKD(csr.Register, access="rw"):
+        def __init__(self, *, reset):
             super().__init__({
-                "divisor": Field(action.RW, unsigned(divisor_bits), reset=divisor),
+                "divisor": csr.Field(csr.action.RW, unsigned(32), reset=reset),
             })
 
-    class RxInfo(csr.Register, access="r"):
-        def __init__(self):
-            super().__init__({
-                "rdy": csr.Field(csr.action.R, unsigned(1)),
-                "err": {
-                    "overflow": Field(csr.action.R, unsigned(1)),
-                    "frame":    Field(csr.action.R, unsigned(1)),
-                    "parity":   Field(csr.action.R, unsigned(1)),
-                },
-            })
+    class RXS(csr.Register, access="r"):
+        rdy: csr.Field(csr.action.R, unsigned(1))
 
-    class RxData(csr.Register, access="r"):
-        def __init__(self, data_bits):
-            super().__init__({
-                "data": Field(action.R, unsigned(data_bits)),
-            })
+    class RXD(csr.Register, access="r"):
+        data: csr.Field(csr.action.R, unsigned(8))
+        err:  {"overflow": csr.Field(csr.action.R, unsigned(1)),
+               "frame":    csr.Field(csr.action.R, unsigned(1))}
 
-    class TxInfo(csr.Register, access="r"):
-        def __init__(self):
-            super().__init__({
-                "rdy": Field(action.R, unsigned(1)),
-            })
+    class TXS(csr.Register, access="r"):
+        rdy: csr.Field(csr.action.R, unsigned(1))
 
-    class TxData(csr.Register, access="w"):
-        def __init__(self, data_bits):
-            super().__init__({
-                "data": Field(action.W, unsigned(data_bits)),
-            })
+    class TXD(csr.Register, access="w"):
+        data: csr.Field(csr.action.W, unsigned(8))
 
-    def __init__(self, *, name, divisor, divisor_bits=None, data_bits=8, parity="none",
-                 rx_depth=16, tx_depth=16):
-        self._phy = AsyncSerial_Blackbox(divisor=divisor, divisor_bits=divisor_bits,
-                                         data_bits=data_bits, parity=parity)
-        self._rx_fifo = SyncFIFOBuffered(width=data_bits + len(self._phy.rx.err.as_value()),
-                                         depth=rx_depth)
-        self._tx_fifo = SyncFIFOBuffered(width=data_bits, depth=tx_depth)
+    def __init__(self, *, name, divisor, rx_fifo_depth=16, tx_fifo_depth=16):
+        super().__init__({"bus": In(csr.Signature(addr_width=8, data_width=8))})
 
-        register_map = csr.RegisterMap()
-        rx_cluster   = csr.RegisterMap()
-        tx_cluster   = csr.RegisterMap()
+        regs = csr.Builder(addr_width=self.bus.addr_width,
+                           data_width=self.bus.data_width,
+                           name=name)
 
-        self._ctrl    = register_map.add_register(self.Ctrl(divisor, divisor_bits), name="ctrl")
-        self._rx_info = rx_cluster.add_register(self.RxInfo(), name="info")
-        self._rx_data = rx_cluster.add_register(self.RxData(data_bits), name="data")
-        self._tx_info = tx_cluster.add_register(self.TxInfo(), name="info")
-        self._tx_data = tx_cluster.add_register(self.TxData(data_bits), name="data")
+        self._ckd = regs.add("CKD", self.CKD(reset=divisor), offset=0x00)
+        self._rxs = regs.add("RXS", self.RXS(), offset=0x04)
+        self._rxd = regs.add("RXD", self.RXD(), offset=0x08)
+        self._txs = regs.add("TXS", self.TXS(), offset=0x0c)
+        self._txd = regs.add("TXD", self.TXD(), offset=0x10)
 
-        register_map.add_cluster(rx_cluster, name="rx")
-        register_map.add_cluster(tx_cluster, name="tx")
+        self.bus.memory_map = regs.as_memory_map()
 
-        self._bridge = csr.Bridge(register_map, addr_width=8, data_width=8, name=name)
-        super().__init__(self._bridge.signature)
-        self.bus.memory_map = self._bridge.bus.memory_map
+        self._bridge  = csr.Bridge(self.bus.memory_map)
+        self._rx_fifo = SyncFIFOBuffered(width=10, depth=rx_fifo_depth)
+        self._tx_fifo = SyncFIFOBuffered(width=8,  depth=tx_fifo_depth)
+        self._phy     = AsyncSerial_Blackbox(divisor=divisor, divisor_bits=32)
 
     def elaborate(self, platform):
         m = Module()
@@ -165,38 +136,37 @@ class AsyncSerialPeripheral(wiring.Component):
 
         connect(m, flipped(self), self._bridge)
 
-        rx_fifo_w_data = Signal(data.StructLayout({
-            "data": self._phy.rx.data.shape(),
-            "err":  self._phy.rx.err .shape(),
-        }))
-        rx_fifo_r_data = Signal.like(rx_fifo_w_data)
-
         m.d.comb += [
-            self._phy.divisor.eq(self._ctrl.f.divisor.data),
+            # CKD / phy
 
-            rx_fifo_w_data.data.eq(self._phy.rx.data),
-            rx_fifo_w_data.err .eq(self._phy.rx.err),
+            self._phy.divisor.eq(self._ckd.f.divisor.data),
 
-            self._rx_fifo.w_data.eq(rx_fifo_w_data),
-            self._rx_fifo.w_en  .eq(self._phy.rx.rdy),
+            # phy.rx / rx_fifo
+
+            self._rx_fifo.w_data.eq(Cat(self._phy.rx.data,
+                                        self._phy.rx.err.overflow,
+                                        self._phy.rx.err.frame)),
+            self._rx_fifo.w_en.eq(self._phy.rx.rdy),
             self._phy.rx.ack.eq(self._rx_fifo.w_rdy),
 
-            rx_fifo_r_data.eq(self._rx_fifo.r_data),
+            # rx_fifo / RXS, RXD
 
-            self._rx_info.f.rdy.r_data.eq(self._rx_fifo.r_rdy),
-            self._rx_info.f.err.overflow.r_data.eq(rx_fifo_r_data.err.overflow),
-            self._rx_info.f.err.frame   .r_data.eq(rx_fifo_r_data.err.frame),
-            self._rx_info.f.err.parity  .r_data.eq(rx_fifo_r_data.err.parity),
+            self._rxs.f.rdy.r_data.eq(self._rx_fifo.r_rdy),
 
-            self._rx_data.f.data.r_data.eq(rx_fifo_r_data.data),
-            self._rx_fifo.r_en.eq(self._rx_data.element.r_stb),
+            Cat(rxd_field.r_data for _, rxd_field in self._rxd).eq(self._rx_fifo.r_data),
+            self._rx_fifo.r_en.eq(self._rxd.f.data.r_stb),
 
-            self._tx_fifo.w_data.eq(self._tx_data.f.data.w_data),
-            self._tx_fifo.w_en  .eq(self._tx_data.element.w_stb),
-            self._tx_info.f.rdy.r_data.eq(self._tx_fifo.w_rdy),
+            # TXS, TXD / tx_fifo
+
+            self._txs.f.rdy.r_data.eq(self._tx_fifo.w_rdy),
+
+            self._tx_fifo.w_data.eq(self._txd.f.data.w_data),
+            self._tx_fifo.w_en.eq(self._txd.f.data.w_stb),
+
+            # tx_fifo / phy.tx
 
             self._phy.tx.data.eq(self._tx_fifo.r_data),
-            self._phy.tx.ack .eq(self._tx_fifo.r_rdy),
+            self._phy.tx.ack.eq(self._tx_fifo.r_rdy),
             self._tx_fifo.r_en.eq(self._phy.tx.rdy),
         ]
 
